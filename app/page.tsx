@@ -231,7 +231,12 @@ export default function OABeautyDashboard() {
               const isRisk = item.stock < item.safety;
               return (
                 <div key={i} className={`p-8 rounded-[40px] bg-white border shadow-sm transition-all hover:shadow-md ${isRisk ? 'border-red-200 ring-4 ring-red-50' : 'border-slate-100 hover:border-indigo-100'}`}>
-                  <h3 className="font-black text-slate-900 text-xl mb-6 tracking-tighter truncate leading-tight">{item.name}</h3>
+                  <h3 
+  className="font-black text-slate-900 text-xl mb-6 tracking-tighter truncate leading-tight cursor-help" 
+  title={item.name} // 이 부분이 마우스 호버 시 전체 이름을 띄워주는 핵심입니다.
+>
+  {item.name}
+</h3>
                   <div className="flex items-end justify-between">
                     <div className="flex items-end gap-2">
                       <span className={`text-6xl font-[1000] tracking-tighter ${isRisk ? 'text-red-600' : 'text-slate-900'}`}>{item.stock}</span>
@@ -244,6 +249,7 @@ export default function OABeautyDashboard() {
                   </div>
                   {isRisk && (<p className="mt-4 text-[10px] font-black text-red-500 uppercase tracking-widest animate-pulse flex items-center gap-1"><TrendingDown size={14} /> 부족: {item.safety - item.stock}개 발주 필요</p>)}
                 </div>
+                
               );
             })}
           </div>
