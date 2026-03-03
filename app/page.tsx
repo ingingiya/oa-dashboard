@@ -1,59 +1,53 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { 
-  BarChart3, Clock, RefreshCw, ExternalLink, Package, 
-  TrendingDown, Target, Users, LayoutDashboard, 
-  AlertCircle, CheckCircle2 
-} from 'lucide-react';
+import { RefreshCw, ExternalLink, Package, Target, Users, AlertCircle, CheckCircle2, TrendingDown } from 'lucide-react';
 
 const SHEET_ID = '1r9WhAOgvdIcumgrkNkTbyYSVj1ONxyXp0trwzD-xAng'; 
 const GOOGLE_SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
 
-type TabType = '메타광고' | '시딩' | '재고관리';
-
 export default function OABeautyDashboard() {
-  const [activeTab, setActiveTab] = useState<TabType>('메타광고');
+  const [activeTab, setActiveTab] = useState('메타광고');
   const [metaData, setMetaData] = useState<any[]>([]);
   const [seedingData, setSeedingData] = useState<any[]>([]);
   const [inventoryData, setInventoryData] = useState<any[]>([]);
-  const [lastSaved, setLastSaved] = useState<string>("연동 중...");
+  const [lastSaved, setLastSaved] = useState("연동 중...");
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
     setLoading(true);
+    // [핵심] 오늘 날짜 강제 설정 (2026-03-03 기준)
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0); 
 
     try {
-      // 1. Sheet1: 메타광고 (A: 광고세트, B: 캠페인명, C: 게재일, D: 교체주기, E: 상태)
+      // 1. 메타광고 (Sheet1)
       const res1 = await fetch(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=Sheet1`);
       const text1 = await res1.text();
       const rows1 = JSON.parse(text1.substring(47).slice(0, -2)).table.rows;
-      setMetaData(rows1.map((r: any) => {
+      const parsedMeta = rows1.map((r: any) => {
         const start = new Date(r.c[2]?.f || r.c[2]?.v);
         const elapsed = Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
         const remaining = (Number(r.c[3]?.v) || 0) - elapsed;
-        return { 
-          adSet: r.c[0]?.v, 
-          campaign: r.c[1]?.v, 
-          start: r.c[2]?.f || r.c[2]?.v, 
-          remaining, 
-          status: r.c[4]?.v 
-        };
-      }));
+        return { adSet: r.c[0]?.v, campaign: r.c[1]?.v, remaining, status: r.c[4]?.v };
+      }).sort((a: any, b: any) => a.remaining - b.remaining);
+      setMetaData(parsedMeta);
 
-      // 2. Sheet2: 시딩 (A: 인플루언서, B: 시작일, C: 마감일, D: 상태, E: 채널)
+      // 2. 시딩 (Sheet2) - 지각 계산 로직 강화
       const res2 = await fetch(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=Sheet2`);
       const text2 = await res2.text();
       const rows2 = JSON.parse(text2.substring(47).slice(0, -2)).table.rows;
-      setSeedingData(rows2.map((r: any) => {
+      const parsedSeeding = rows2.map((r: any) => {
         const deadline = new Date(r.c[2]?.f || r.c[2]?.v);
-        const remaining = Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        return { name: r.c[0]?.v, start: r.c[1]?.f || r.c[1]?.v, remaining, status: r.c[3]?.v, channel: r.c[4]?.v };
-      }));
+        deadline.setHours(0, 0, 0, 0);
+        // D-Day 계산: (마감일 - 오늘)
+        const diffTime = deadline.getTime() - today.getTime();
+        const remaining = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        return { name: r.c[0]?.v, remaining, status: r.c[3]?.v, channel: r.c[4]?.v };
+      }).sort((a: any, b: any) => a.remaining - b.remaining);
+      setSeedingData(parsedSeeding);
 
-      // 3. Sheet3: 재고 (A: 제품명, B: 현재재고, C: 안전재고, D: 단위)
+      // 3. 재고 (Sheet3)
       const res3 = await fetch(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=Sheet3`);
       const text3 = await res3.text();
       const rows3 = JSON.parse(text3.substring(47).slice(0, -2)).table.rows;
@@ -61,156 +55,113 @@ export default function OABeautyDashboard() {
         name: r.c[0]?.v, stock: Number(r.c[1]?.v), safety: Number(r.c[2]?.v), unit: r.c[3]?.v
       })));
 
-      setLastSaved(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      setLastSaved(new Date().toLocaleTimeString());
     } catch (e) { setLastSaved("오류 발생"); }
     setLoading(false);
   };
 
   useEffect(() => { fetchData(); }, []);
 
+  // [중요] 상단 경고창 필터링: 마감일이 지났거나(음수), 2일 이내인 경우
+  const urgentSeeding = seedingData.filter(item => item.remaining <= 2 && item.status === '진행중');
+  const urgentMeta = metaData.filter(item => item.remaining <= 2 && item.status === '운영중');
+  const inventoryRisk = inventoryData.filter(item => item.stock < item.safety);
+  const hasUrgent = urgentSeeding.length > 0 || urgentMeta.length > 0 || inventoryRisk.length > 0;
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-6 md:p-12 font-sans text-slate-900">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
+      {/* HEADER */}
+      <header className="flex justify-between items-center mb-10">
         <div className="flex items-center gap-4">
-          <div className="bg-slate-900 p-4 rounded-3xl text-white shadow-2xl tracking-tighter italic font-black text-2xl rotate-2">OA</div>
-          <div>
-            <h1 className="text-3xl font-black tracking-tighter text-slate-900">OPERATIONS HUB</h1>
-            <p className="text-indigo-500 font-bold text-[10px] tracking-widest uppercase flex items-center gap-2">
-              <span className="w-2 h-2 bg-indigo-500 rounded-full animate-ping"></span> Live Performance
-            </p>
-          </div>
+          <div className="bg-black text-white p-4 rounded-2xl font-black text-xl italic">OA</div>
+          <h1 className="text-2xl font-black tracking-tighter uppercase">Operations Hub</h1>
         </div>
-        <div className="flex bg-white p-2 rounded-[24px] shadow-sm border border-slate-100 items-center gap-4">
-          <div className="px-4 py-1 text-right border-r border-slate-100 font-black">
-            <p className="text-[10px] text-slate-400 uppercase tracking-tighter">Sync</p>
-            <p className="text-xs text-slate-600">{lastSaved}</p>
-          </div>
-          <button onClick={fetchData} className={`p-2 hover:bg-slate-50 rounded-xl transition-all ${loading ? 'animate-spin' : ''}`}><RefreshCw size={18} /></button>
-          <button onClick={() => window.open(GOOGLE_SHEET_URL, '_blank')} className="bg-indigo-600 p-3 rounded-2xl text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100"><ExternalLink size={20} /></button>
-        </div>
+        <button onClick={fetchData} className="p-3 bg-white rounded-full shadow-sm border border-slate-200">
+          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+        </button>
       </header>
 
-      <nav className="flex gap-3 mb-10 overflow-x-auto pb-2 no-scrollbar">
-        {(['메타광고', '시딩', '재고관리'] as TabType[]).map((tab) => (
+      {/* 🚨 긴급 관리 대상 (CRITICAL ALERTS) */}
+      {hasUrgent && (
+        <section className="mb-10 animate-in fade-in slide-in-from-top-4 duration-500">
+          <h2 className="text-red-600 font-black mb-4 flex items-center gap-2 tracking-widest uppercase text-xs">🚨 Critical Alerts</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {urgentSeeding.map((item, i) => (
+              <div key={i} className="bg-orange-600 text-white p-6 rounded-3xl shadow-lg shadow-orange-100">
+                <p className="text-[10px] font-black opacity-70 uppercase tracking-widest">Seeding Overdue/Urgent</p>
+                <div className="flex justify-between items-end mt-2">
+                  <p className="font-black text-lg truncate w-32">{item.name}</p>
+                  <p className="text-3xl font-[1000]">{item.remaining < 0 ? `LATE D+${Math.abs(item.remaining)}` : `D-${item.remaining}`}</p>
+                </div>
+              </div>
+            ))}
+            {inventoryRisk.map((item, i) => (
+              <div key={i} className="bg-slate-900 text-white p-6 rounded-3xl shadow-lg">
+                <p className="text-[10px] font-black opacity-70 uppercase tracking-widest">Stock Risk</p>
+                <div className="flex justify-between items-end mt-2">
+                  <p className="font-black text-lg truncate">{item.name}</p>
+                  <p className="text-3xl font-[1000] text-red-500">{item.stock}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* TABS */}
+      <nav className="flex gap-2 mb-8 bg-slate-100 p-1.5 rounded-2xl w-fit">
+        {['메타광고', '시딩', '재고관리'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-8 py-4 rounded-2xl text-sm font-black transition-all whitespace-nowrap ${
-              activeTab === tab ? 'bg-slate-900 text-white shadow-xl' : 'bg-white text-slate-400 border border-slate-100 hover:bg-slate-50'
-            }`}
+            className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${activeTab === tab ? 'bg-white text-black shadow-sm' : 'text-slate-400'}`}
           >
-            {tab === '메타광고' && <Target size={16} className="inline mr-2" />}
-            {tab === '시딩' && <Users size={16} className="inline mr-2" />}
-            {tab === '재고관리' && <Package size={16} className="inline mr-2" />}
             {tab}
           </button>
         ))}
       </nav>
 
-      <main className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-        {activeTab === '메타광고' && <AdTableUI data={metaData} label="소재교체" />}
-        {activeTab === '시딩' && <SeedingTableUI data={seedingData} label="작성마감" />}
-        {activeTab === '재고관리' && <InventoryUI data={inventoryData} />}
+      {/* MAIN LIST */}
+      <main className="bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+            <tr>
+              <th className="px-10 py-5">항목</th>
+              <th className="px-10 py-5 text-center">상태</th>
+              <th className="px-10 py-5 text-right">스케줄 / 현황</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {activeTab === '재고관리' ? (
+              inventoryData.map((item, i) => (
+                <tr key={i} className="hover:bg-slate-50/50">
+                  <td className="px-10 py-7 font-black text-slate-900">{item.name}</td>
+                  <td className="px-10 py-7 text-center">
+                    <span className={`px-4 py-1.5 rounded-full text-[10px] font-black ${item.stock < item.safety ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                      {item.stock < item.safety ? '재고부족' : '안전'}
+                    </span>
+                  </td>
+                  <td className="px-10 py-7 text-right font-black text-2xl tracking-tighter">{item.stock} <span className="text-xs text-slate-300">/ {item.safety}</span></td>
+                </tr>
+              ))
+            ) : (
+              (activeTab === '시딩' ? seedingData : metaData).map((item, i) => (
+                <tr key={i} className="hover:bg-slate-50/50">
+                  <td className="px-10 py-7 font-black text-slate-900">{item.name || item.adSet}</td>
+                  <td className="px-10 py-7 text-center">
+                    <span className="px-4 py-1.5 bg-slate-100 rounded-full text-[10px] font-black text-slate-500">{item.status}</span>
+                  </td>
+                  <td className="px-10 py-7 text-right">
+                    <span className={`px-5 py-2 rounded-xl font-black text-xs ${item.remaining <= 2 ? 'bg-red-500 text-white' : 'bg-slate-900 text-white'}`}>
+                      {item.remaining < 0 ? `LATE D+${Math.abs(item.remaining)}` : `D-${item.remaining}`}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </main>
-    </div>
-  );
-}
-
-// 1. 메타광고 전용 UI (광고세트 / 캠페인명 순서)
-function AdTableUI({ data, label }: any) {
-  return (
-    <div className="bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
-            <th className="px-10 py-5">광고세트</th>
-            <th className="px-10 py-5">캠페인명</th>
-            <th className="px-10 py-5 text-center">상태</th>
-            <th className="px-10 py-5 text-right font-bold text-indigo-600">D-Day</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-50">
-          {data.map((item: any, i: number) => (
-            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-              <td className="px-10 py-7 font-[900] text-slate-900 text-base">{item.adSet}</td>
-              <td className="px-10 py-7 text-sm font-bold text-slate-500">
-                {item.campaign}
-                <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-tighter">Start: {item.start}</p>
-              </td>
-              <td className="px-10 py-7 text-center">
-                <span className={`px-3 py-1.5 rounded-full text-[10px] font-black ${item.status === '운영중' ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-400'}`}>
-                  {item.status}
-                </span>
-              </td>
-              <td className="px-10 py-7 text-right">
-                <span className={`px-4 py-2 rounded-xl text-xs font-black ${item.remaining <= 2 ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-900 text-white'}`}>
-                  {label} D-{item.remaining}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// 2. 시딩 전용 UI
-function SeedingTableUI({ data, label }: any) {
-  return (
-    <div className="bg-white rounded-[40px] shadow-sm border border-slate-100 overflow-hidden">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
-            <th className="px-10 py-5">인플루언서</th>
-            <th className="px-10 py-5 text-center">채널</th>
-            <th className="px-10 py-5 text-center">상태</th>
-            <th className="px-10 py-5 text-right font-bold text-rose-500">D-Day</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-50">
-          {data.map((item: any, i: number) => (
-            <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-              <td className="px-10 py-7 font-[900] text-slate-900 text-base">{item.name}</td>
-              <td className="px-10 py-7 text-center text-sm font-bold text-slate-500 uppercase">{item.channel}</td>
-              <td className="px-10 py-7 text-center">
-                <span className={`px-3 py-1.5 rounded-full text-[10px] font-black ${item.status === '운영중' || item.status === '진행중' ? 'bg-green-50 text-green-600' : 'bg-slate-100 text-slate-400'}`}>
-                  {item.status}
-                </span>
-              </td>
-              <td className="px-10 py-7 text-right">
-                <span className={`px-4 py-2 rounded-xl text-xs font-black ${item.remaining <= 2 ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-900 text-white'}`}>
-                  {label} D-{item.remaining}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// 3. 재고관리 전용 UI
-function InventoryUI({ data }: any) {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {data.map((item: any, i: number) => {
-        const isRisk = item.stock < item.safety;
-        return (
-          <div key={i} className={`p-8 rounded-[40px] bg-white border shadow-sm flex flex-col justify-between ${isRisk ? 'border-red-200 shadow-red-50 shadow-xl' : 'border-slate-100'}`}>
-            <div className="flex justify-between items-start">
-              <h3 className="font-[900] text-slate-900 text-xl tracking-tight">{item.name}</h3>
-              {isRisk ? <TrendingDown className="text-red-500 animate-bounce" /> : <CheckCircle2 className="text-emerald-500" />}
-            </div>
-            <div className="mt-8 flex items-end gap-2">
-              <span className={`text-6xl font-[1000] tracking-tighter ${isRisk ? 'text-red-600' : 'text-slate-900'}`}>{item.stock}</span>
-              <span className="text-slate-300 font-bold mb-2">/ 목표 {item.safety}{item.unit}</span>
-            </div>
-            {isRisk && <p className="mt-4 text-[11px] font-[900] text-red-500 uppercase tracking-widest animate-pulse">부족분 {item.safety - item.stock}개 즉시 보충 필요</p>}
-          </div>
-        );
-      })}
     </div>
   );
 }
