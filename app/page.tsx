@@ -61,31 +61,52 @@ export default function OABeautyDashboard() {
       const rows4 = JSON.parse(text4.substring(47).slice(0, -2)).table.rows;
       // fetchData 함수 내부의 budgetData 매핑 부분을 이 로직으로 교체하세요.
 // 4. Sheet4: 메타광고 체크 (정밀 가이드 로직)
+// 4. Sheet4: 메타광고 체크 (트래픽/전환 지능형 분석)
 setBudgetData(rows4.map((r: any) => {
-  const name = r.c[1]?.v || "항목명 없음";
+  const name = r.c[1]?.v || "";
   const spend = Number(r.c[2]?.v) || 0;
   const results = Number(r.c[3]?.v) || 0;
-  const targetCpa = Number(r.c[7]?.v) || 0;
-  const avgCpa7d = Number(r.c[8]?.v) || 0;
+  const lpv = Number(r.c[4]?.v) || 0;
+  const target = Number(r.c[7]?.v) || 0; // 시트의 목표값
+  const avg7d = Number(r.c[8]?.v) || 0; // 시트의 7일 평균값
   const currentBudget = Number(r.c[9]?.v) || 0;
-  const currentCpa = results > 0 ? Math.round(spend / results) : 0;
-  
-  let decision: any = { type: 'KEEP', label: "유지", reason: "성과 관망", color: "bg-slate-100 text-slate-400", budget: currentBudget };
 
-  if (currentCpa > 0 && currentCpa <= targetCpa) {
-    if (currentCpa <= avgCpa7d) {
-      decision = { type: 'SCALE', label: "🔥 공격 증액", reason: `주간 평균 대비 효율 ${Math.round(((avgCpa7d-currentCpa)/avgCpa7d)*100)}% 상승`, color: "bg-emerald-600 text-white", budget: Math.round(currentBudget * 1.3) };
+  // 캠페인 성격 자동 판별 (이름 기준)
+  const isTraffic = name.includes("트래픽") || name.includes("LPV");
+  const currentCost = isTraffic 
+    ? (lpv > 0 ? Math.round(spend / lpv) : 0) 
+    : (results > 0 ? Math.round(spend / results) : 0);
+  
+  let decision: any = { type: 'KEEP', label: "유지", reason: "정상 범위", color: "bg-slate-100 text-slate-400", budget: currentBudget };
+
+  // AI 판단 매트릭스
+  if (currentCost > 0 && currentCost <= target) {
+    if (avg7d > 0 && currentCost <= avg7d) {
+      // 주간 평균보다 잘하고 목표 달성 시 -> 공격 증액
+      decision = { 
+        type: 'SCALE', label: "🔥 공격 증액", 
+        reason: `${isTraffic ? '유입비용' : '구매비용'}이 주간 평균(${avg7d}원)보다 낮아 효율 극대화 중입니다.`, 
+        color: "bg-emerald-600 text-white shadow-emerald-100", budget: Math.round(currentBudget * 1.3) 
+      };
     } else {
-      decision = { type: 'SCALE', label: "📈 완만 증액", reason: "목표 내 진입, 주간 평균 대비 소폭 하락", color: "bg-emerald-400 text-white", budget: Math.round(currentBudget * 1.1) };
+      // 목표는 달성했으나 주간 평균보다는 높을 때 -> 완만 증액
+      decision = { 
+        type: 'SCALE', label: "📈 완만 증액", 
+        reason: "목표 범위 내에 있으나 주간 평균 대비 소폭 하락세입니다. 10% 증액 권장.", 
+        color: "bg-emerald-400 text-white", budget: Math.round(currentBudget * 1.1) 
+      };
     }
-  } else if (currentCpa > targetCpa * 1.2 && currentCpa >= avgCpa7d) {
-    decision = { type: 'OFF', label: "💀 즉시 OFF", reason: "목표 이탈 및 하락세 지속", color: "bg-red-500 text-white animate-pulse", budget: 0 };
-  } else if (results === 0 && spend > targetCpa * 0.8) {
-    decision = { type: 'OFF', label: "⚠️ 미전환 경고", reason: "지출 임계점 도달, 즉시 점검", color: "bg-orange-500 text-white", budget: 0 };
+  } else if (currentCost > target * 1.2 || (spend > target && currentCost === 0)) {
+    // 목표가 대폭 이탈했거나 돈만 쓰고 결과가 없을 때 -> OFF
+    decision = { 
+      type: 'OFF', label: "💀 즉시 OFF", 
+      reason: `목표(${target}원)를 크게 벗어났습니다. ${isTraffic ? '유입' : '전환'} 단가가 너무 비쌉니다.`, 
+      color: "bg-red-500 text-white animate-pulse", budget: 0 
+    };
   }
-  return { name, spend, currentCpa, targetCpa, avgCpa7d, currentBudget, ...decision };
+
+  return { name, spend, currentCost, target, avg7d, isTraffic, ...decision };
 }));
-      
       setLastSaved(new Date().toLocaleTimeString('ko-KR'));
     } catch (e) { setLastSaved("연동 오류"); }
     setLoading(false);
@@ -119,38 +140,37 @@ setBudgetData(rows4.map((r: any) => {
       {/* 🎖️ 메타광고 체크 (최상단 데일리 액션 가이드) */}
       {activeTab === '메타광고 체크' && (
   <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-    <table className="w-full text-left text-xs">
-      <thead className="bg-slate-50 text-[10px] text-slate-400 font-black uppercase tracking-widest border-b border-slate-100">
-        <tr>
-          <th className="px-6 py-4">광고세트 / 지출</th>
-          <th className="px-6 py-4 text-center">오늘 CPA</th>
-          <th className="px-6 py-4 text-center">주간 평균</th>
-          <th className="px-6 py-4 text-right">AI 가이드</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-slate-50">
-        {budgetData.map((item, i) => (
-          <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-            <td className="px-6 py-4">
-              <p className="font-bold text-slate-700 truncate max-w-[150px]" title={item.name}>{item.name}</p>
-              <p className="text-[10px] text-slate-300 font-medium">{item.spend.toLocaleString()}원 지출</p>
-            </td>
-            <td className={`px-6 py-4 text-center font-black ${item.currentCpa <= item.targetCpa ? 'text-emerald-600' : 'text-red-500'}`}>
-              {item.currentCpa === 0 ? '전환 없음' : `${item.currentCpa.toLocaleString()}원`}
-            </td>
-            <td className="px-6 py-4 text-center text-slate-400 font-bold">
-              {item.avgCpa7d.toLocaleString()}원
-            </td>
-            <td className="px-6 py-4 text-right">
-              <div className="flex flex-col items-end gap-1">
-                <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase ${item.color}`}>{item.label}</span>
-                <p className="text-[10px] text-slate-400 italic leading-tight">{item.reason}</p>
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="bg-slate-50 px-6 py-3 border-b border-slate-100">
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">실시간 성과 상세 분석</p>
+    </div>
+    <div className="divide-y divide-slate-50">
+      {budgetData.map((item, i) => (
+        <div key={i} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
+          <div className="flex-1 min-w-0 pr-4">
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`text-[8px] px-1.5 py-0.5 rounded font-black ${item.isTraffic ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                {item.isTraffic ? 'TRAFFIC' : 'CONVERSION'}
+              </span>
+              <p className="font-bold text-slate-700 text-sm truncate" title={item.name}>{item.name}</p>
+            </div>
+            <p className="text-[10px] text-slate-400 font-medium">지출: {item.spend.toLocaleString()}원</p>
+          </div>
+          
+          <div className="flex items-center gap-10 text-right">
+            <div>
+              <p className="text-[9px] text-slate-400 font-black uppercase mb-0.5">Current Cost</p>
+              <p className={`text-sm font-black ${item.currentCost <= item.target ? 'text-emerald-600' : 'text-red-500'}`}>
+                {item.currentCost === 0 ? '전환 없음' : `${item.currentCost.toLocaleString()}원`}
+              </p>
+            </div>
+            <div className="w-28 flex flex-col items-end">
+              <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase mb-1 ${item.color}`}>{item.label}</span>
+              <p className="text-[9px] text-slate-400 italic leading-tight text-right w-full">{item.reason}</p>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
   </div>
 )}
     
