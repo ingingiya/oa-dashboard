@@ -59,35 +59,33 @@ export default function OABeautyDashboard() {
       const res4 = await fetch(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=Sheet4`);
       const text4 = await res4.text();
       const rows4 = JSON.parse(text4.substring(47).slice(0, -2)).table.rows;
-      setBudgetData(rows4.map((r: any) => {
-        const name = r.c[1]?.v || "항목명 없음";
-        const spend = Number(r.c[2]?.v) || 0;
-        const results = Number(r.c[3]?.v) || 0;
-        const lpv = Number(r.c[4]?.v) || 0;
-        const clicks = Number(r.c[5]?.v) || 0;
-        const targetCpa = Number(r.c[7]?.v) || 0;
-        const avgCpa7d = Number(r.c[8]?.v) || 0;
-        const currentBudget = Number(r.c[9]?.v) || 0;
+      // fetchData 함수 내부의 budgetData 매핑 부분을 이 로직으로 교체하세요.
+// 4. Sheet4: 메타광고 체크 (정밀 가이드 로직)
+setBudgetData(rows4.map((r: any) => {
+  const name = r.c[1]?.v || "항목명 없음";
+  const spend = Number(r.c[2]?.v) || 0;
+  const results = Number(r.c[3]?.v) || 0;
+  const targetCpa = Number(r.c[7]?.v) || 0;
+  const avgCpa7d = Number(r.c[8]?.v) || 0;
+  const currentBudget = Number(r.c[9]?.v) || 0;
+  const currentCpa = results > 0 ? Math.round(spend / results) : 0;
+  
+  let decision: any = { type: 'KEEP', label: "유지", reason: "성과 관망", color: "bg-slate-100 text-slate-400", budget: currentBudget };
 
-        const currentCpa = results > 0 ? Math.round(spend / results) : 0;
-        const lpvRate = clicks > 0 ? Math.round((lpv / clicks) * 100) : 0;
-        
-        let decision: any = { type: 'KEEP', label: "관망", reason: "데이터 수집 및 성과 관망 중", color: "bg-slate-100 text-slate-500", budget: currentBudget };
-
-        if (currentCpa > 0 && currentCpa <= targetCpa) {
-          if (currentCpa <= avgCpa7d) {
-            decision = { type: 'SCALE', label: "🔥 공격 증액", reason: `7일 평균 대비 효율 ${Math.round(((avgCpa7d-currentCpa)/avgCpa7d)*100)}% 상승. 강력 추천.`, color: "bg-emerald-600 text-white", budget: Math.round(currentBudget * 1.3) };
-          } else {
-            decision = { type: 'SCALE', label: "📈 완만 증액", reason: "목표 내 진입했으나 주간 평균 대비 소폭 상승세.", color: "bg-emerald-400 text-white", budget: Math.round(currentBudget * 1.1) };
-          }
-        } else if (currentCpa > targetCpa * 1.2 && currentCpa >= avgCpa7d) {
-          decision = { type: 'OFF', label: "💀 즉시 OFF", reason: "목표가 이탈 및 하락세 지속. 즉시 중단 권장.", color: "bg-red-500 text-white animate-pulse", budget: 0 };
-        }
-        if (lpvRate < 50 && clicks > 30) decision.reason = `도달율(${lpvRate}%) 저하. 랜딩 페이지 이탈 요소 점검 필요.`;
-
-        return { name, currentCpa, targetCpa, avgCpa7d, currentBudget, lpvRate, ...decision };
-      }));
-
+  if (currentCpa > 0 && currentCpa <= targetCpa) {
+    if (currentCpa <= avgCpa7d) {
+      decision = { type: 'SCALE', label: "🔥 공격 증액", reason: `주간 평균 대비 효율 ${Math.round(((avgCpa7d-currentCpa)/avgCpa7d)*100)}% 상승`, color: "bg-emerald-600 text-white", budget: Math.round(currentBudget * 1.3) };
+    } else {
+      decision = { type: 'SCALE', label: "📈 완만 증액", reason: "목표 내 진입, 주간 평균 대비 소폭 하락", color: "bg-emerald-400 text-white", budget: Math.round(currentBudget * 1.1) };
+    }
+  } else if (currentCpa > targetCpa * 1.2 && currentCpa >= avgCpa7d) {
+    decision = { type: 'OFF', label: "💀 즉시 OFF", reason: "목표 이탈 및 하락세 지속", color: "bg-red-500 text-white animate-pulse", budget: 0 };
+  } else if (results === 0 && spend > targetCpa * 0.8) {
+    decision = { type: 'OFF', label: "⚠️ 미전환 경고", reason: "지출 임계점 도달, 즉시 점검", color: "bg-orange-500 text-white", budget: 0 };
+  }
+  return { name, spend, currentCpa, targetCpa, avgCpa7d, currentBudget, ...decision };
+}));
+      
       setLastSaved(new Date().toLocaleTimeString('ko-KR'));
     } catch (e) { setLastSaved("연동 오류"); }
     setLoading(false);
@@ -119,37 +117,43 @@ export default function OABeautyDashboard() {
       </header>
 
       {/* 🎖️ 메타광고 체크 (최상단 데일리 액션 가이드) */}
-      <section className="mb-12">
-        <div className="flex items-center gap-2 mb-4 px-2 text-slate-400">
-            <Target size={16} />
-            <h2 className="text-xs font-black uppercase tracking-[0.2em]">메타광고 체크 (Daily Action)</h2>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {budgetData.filter(item => item.type !== 'KEEP').map((item, i) => (
-            <div key={i} className={`p-8 rounded-[40px] bg-white border-l-[12px] shadow-sm flex flex-col justify-between ${item.type === 'SCALE' ? 'border-emerald-500' : 'border-red-500'}`}>
-              <div className="flex justify-between items-start mb-6">
-                <div className="min-w-0 flex-1 pr-4">
-                  <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase ${item.color}`}>{item.label}</span>
-                  <h3 className="text-xl font-[1000] text-slate-900 mt-4 truncate">{item.name}</h3>
-                </div>
-                <div className="text-right whitespace-nowrap">
-                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Guide Budget</p>
-                  <p className={`text-2xl font-[1000] ${item.type === 'SCALE' ? 'text-emerald-600' : 'text-red-500'}`}>{item.type === 'OFF' ? 'OFF' : `${item.budget.toLocaleString()}원`}</p>
-                </div>
+      {activeTab === '메타광고 체크' && (
+  <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+    <table className="w-full text-left text-xs">
+      <thead className="bg-slate-50 text-[10px] text-slate-400 font-black uppercase tracking-widest border-b border-slate-100">
+        <tr>
+          <th className="px-6 py-4">광고세트 / 지출</th>
+          <th className="px-6 py-4 text-center">오늘 CPA</th>
+          <th className="px-6 py-4 text-center">주간 평균</th>
+          <th className="px-6 py-4 text-right">AI 가이드</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-50">
+        {budgetData.map((item, i) => (
+          <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+            <td className="px-6 py-4">
+              <p className="font-bold text-slate-700 truncate max-w-[150px]" title={item.name}>{item.name}</p>
+              <p className="text-[10px] text-slate-300 font-medium">{item.spend.toLocaleString()}원 지출</p>
+            </td>
+            <td className={`px-6 py-4 text-center font-black ${item.currentCpa <= item.targetCpa ? 'text-emerald-600' : 'text-red-500'}`}>
+              {item.currentCpa === 0 ? '전환 없음' : `${item.currentCpa.toLocaleString()}원`}
+            </td>
+            <td className="px-6 py-4 text-center text-slate-400 font-bold">
+              {item.avgCpa7d.toLocaleString()}원
+            </td>
+            <td className="px-6 py-4 text-right">
+              <div className="flex flex-col items-end gap-1">
+                <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase ${item.color}`}>{item.label}</span>
+                <p className="text-[10px] text-slate-400 italic leading-tight">{item.reason}</p>
               </div>
-              <div className={`p-5 rounded-3xl flex gap-3 items-start ${item.type === 'SCALE' ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                <Info size={16} className={item.type === 'SCALE' ? 'text-emerald-600 shrink-0 mt-0.5' : 'text-red-600 shrink-0 mt-0.5'} />
-                <p className="text-xs font-bold text-slate-700 leading-snug">{item.reason}</p>
-              </div>
-            </div>
-          ))}
-          {budgetData.filter(item => item.type !== 'KEEP').length === 0 && (
-              <div className="lg:col-span-2 bg-white border-2 border-dashed border-slate-200 rounded-[40px] p-10 text-center text-slate-400 font-bold italic">
-                  오늘 즉시 조정이 필요한 캠페인이 없습니다. 평온한 상태입니다.
-              </div>
-          )}
-        </div>
-      </section>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}
+    
 
       {/* CRITICAL ALERTS (기존 스타일 보존) */}
       {hasUrgent && (
